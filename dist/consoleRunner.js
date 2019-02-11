@@ -1,0 +1,99 @@
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+    value: true
+});
+
+var _readline = require('readline');
+
+var _url = require('url');
+
+var _request = require('request');
+
+var _request2 = _interopRequireDefault(_request);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+const readline = (0, _readline.createInterface)({
+    input: process.stdin,
+    output: process.stdout
+});
+
+const POSTCODES_BASE_URL = 'https://api.postcodes.io';
+const TFL_BASE_URL = 'https://api.tfl.gov.uk';
+
+class ConsoleRunner {
+
+    promptForPostcode() {
+        readline.question('\nEnter your postcode: ', function (postcode) {
+            readline.close();
+            return postcode;
+        });
+    }
+
+    displayStopPoints(stopPoints) {
+        stopPoints.forEach(point => {
+            console.log(point.commonName);
+        });
+    }
+
+    buildUrl(url, endpoint, parameters) {
+        const requestUrl = new _url.URL(endpoint, url);
+        parameters.forEach(param => requestUrl.searchParams.append(param.name, param.value));
+        return requestUrl.href;
+    }
+
+    makeGetRequest(baseUrl, endpoint, parameters, callback) {
+        const url = this.buildUrl(baseUrl, endpoint, parameters);
+
+        _request2.default.get(url, (err, response, body) => {
+            if (err) {
+                console.log(err);
+            } else if (response.statusCode !== 200) {
+                console.log(response.statusCode);
+            } else {
+                callback(body);
+            }
+        });
+    }
+
+    getLocationForPostCode(postcode, callback) {
+        this.makeGetRequest(POSTCODES_BASE_URL, `postcodes/${postcode}`, [], function (responseBody) {
+            const jsonBody = JSON.parse(responseBody);
+            callback({ latitude: jsonBody.result.latitude, longitude: jsonBody.result.longitude });
+        });
+    }
+
+    getNearestStopPoints(latitude, longitude, count, callback) {
+        this.makeGetRequest(TFL_BASE_URL, `StopPoint`, [{ name: 'stopTypes', value: 'NaptanPublicBusCoachTram' }, { name: 'lat', value: latitude }, { name: 'lon', value: longitude }, { name: 'radius', value: 1000 }, { name: 'app_id', value: '' /* Enter your app id here */ }, { name: 'app_key', value: '' /* Enter your app key here */ }], function (responseBody) {
+            const stopPoints = JSON.parse(responseBody).stopPoints.map(function (entity) {
+                return { naptanId: entity.naptanId, commonName: entity.commonName };
+            }).slice(0, count);
+            callback(stopPoints);
+        });
+    }
+
+    formatPostcode(postcode) {
+        let formattedPostcode = postcode.replace(/\s/g, '');
+        return formattedPostcode;
+    }
+
+    run() {
+        const that = this;
+
+        let startingPromise = new Promise(function (resolve, error) {
+            let postcodePrompt = that.promptForPostcode();
+            resolve(postcodePrompt);
+        }).then(postcodePrompt => {
+            let postcode = that.formatPostcode(postcodePrompt);
+            return postcode;
+        }).then(postcode => {
+            that.getLocationForPostCode(postcode, function (location) {
+                that.getNearestStopPoints(location.latitude, location.longitude, 5, function (stopPoints) {
+                    that.displayStopPoints(stopPoints);
+                });
+            });
+        });
+    }
+}
+exports.default = ConsoleRunner;
